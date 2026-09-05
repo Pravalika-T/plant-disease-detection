@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plant Health Result - Plant Health AI</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+    <nav class="navbar navbar-expand-lg sticky-top">
+        <div class="container">
+            <a class="navbar-brand" href="index.html">
+                <i class="fas fa-leaf text-success fs-3"></i>
+                <span>Plant Health AI</span>
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <div id="navUserArea" class="w-100 d-flex flex-column flex-lg-row align-items-lg-center justify-content-lg-between"></div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container py-4">
+        
+        <!-- Header Banner -->
+        <div class="d-flex align-items-center justify-content-between mb-4">
+            <div>
+                <span class="badge bg-success bg-opacity-10 text-success fw-bold px-3 py-1 rounded-pill mb-2">Analysis Complete</span>
+                <h2 class="fw-bold text-dark mb-0">Plant Health Result</h2>
+            </div>
+            <div>
+                <a href="detect.html" class="btn btn-agri-primary"><i class="fas fa-camera me-1"></i>Check Another Plant</a>
+            </div>
+        </div>
+
+        <div id="resultContent">
+            <!-- Dynamic Result Card rendered by JavaScript -->
+            <div class="text-center py-5">
+                <div class="spinner-border text-success" role="status"></div>
+                <p class="mt-2 text-muted">Loading prediction details...</p>
+            </div>
+        </div>
+
+    </div>
+
+    <footer>
+        <div class="container text-center">
+            <h5 class="fw-bold text-success"><i class="fas fa-leaf me-2"></i>AI Plant Disease Detection System</h5>
+            <p class="text-muted small">&copy; 2026 College Project Demonstration</p>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="js/app.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', async function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const predictionId = urlParams.get('id');
+
+            let data = null;
+            const cachedStr = sessionStorage.getItem('current_result');
+            if (cachedStr) {
+                const cached = JSON.parse(cachedStr);
+                if (!predictionId || cached.predictionId == predictionId) {
+                    data = cached;
+                }
+            }
+
+            if (!data && predictionId) {
+                try {
+                    const response = await fetch(`${API_BASE_URL}/predictions/${predictionId}`);
+                    if (response.ok) {
+                        data = await response.json();
+                    }
+                } catch (err) {
+                    console.error("Failed to fetch prediction details", err);
+                }
+            }
+
+            if (!data) {
+                document.getElementById('resultContent').innerHTML = `
+                    <div class="alert alert-warning text-center rounded-4 p-4">
+                        <i class="fas fa-exclamation-triangle fs-2 mb-2 text-warning"></i>
+                        <h4>Result Not Found</h4>
+                        <p class="mb-3">Could not load prediction result. Please perform a new plant check.</p>
+                        <a href="detect.html" class="btn btn-agri-primary">Check a Plant Now</a>
+                    </div>
+                `;
+                return;
+            }
+
+            renderResultView(data);
+        });
+
+        function renderResultView(data) {
+            const isHealthy = data.isHealthy;
+            const badgeClass = isHealthy ? 'badge-healthy' : 'badge-diseased';
+            const iconClass = isHealthy ? 'fa-check-circle text-success' : 'fa-triangle-exclamation text-danger';
+
+            const symptomsList = (data.symptoms || '')
+                .split('\n')
+                .filter(s => s.trim().length > 0)
+                .map(s => `<li class="mb-2"><i class="fas fa-dot-circle me-2 text-warning"></i>${s.replace(/^•\s*/, '')}</li>`)
+                .join('');
+
+            const preventionList = (data.treatment ? data.treatment.prevention || '' : '')
+                .split('\n')
+                .filter(p => p.trim().length > 0)
+                .map(p => `<li class="mb-2"><i class="fas fa-check text-success me-2"></i>${p.replace(/^•\s*/, '')}</li>`)
+                .join('');
+
+            const t = data.treatment || {};
+
+            document.getElementById('resultContent').innerHTML = `
+                <div class="row g-4">
+                    <!-- Overview Card -->
+                    <div class="col-lg-5">
+                        <div class="card border-0 shadow-lg rounded-4 p-4 h-100 bg-white">
+                            <div class="text-center mb-3">
+                                <span class="badge ${badgeClass} fs-6 mb-2">
+                                    <i class="fas ${iconClass} me-1"></i>${isHealthy ? 'Healthy Plant' : 'Diseased Plant'}
+                                </span>
+                                <h3 class="fw-bold text-dark mb-1">${data.plantName}</h3>
+                                <h4 class="fw-bold text-success mb-3">${data.diseaseName}</h4>
+                            </div>
+
+                            <div class="text-center mb-4">
+                                <img src="${API_BASE_URL.replace('/api', '')}/${data.imagePath}" 
+                                     onerror="this.src='https://images.unsplash.com/photo-1530836369250-ef72a3f5cda8?auto=format&fit=crop&w=500&q=80'" 
+                                     alt="Uploaded Leaf" class="img-fluid rounded-4 shadow-sm" style="max-height: 240px; width: 100%; object-fit: cover;">
+                            </div>
+
+                            <div class="bg-light p-3 rounded-3 mb-3 border">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <span class="fw-bold text-dark"><i class="fas fa-brain text-success me-2"></i>AI Confidence:</span>
+                                    <span class="fw-bold text-success fs-5">${data.confidence}%</span>
+                                </div>
+                                <div class="confidence-progress">
+                                    <div class="confidence-bar" style="width: ${data.confidence}%">${data.confidence}%</div>
+                                </div>
+                            </div>
+
+                            <div class="d-grid gap-2 mt-auto">
+                                <button class="btn btn-outline-success rounded-pill py-2 fw-bold" onclick="window.print()"><i class="fas fa-print me-2"></i>Save / Print Result</button>
+                                <a href="history.html" class="btn btn-outline-secondary rounded-pill py-2 fw-bold"><i class="fas fa-history me-2"></i>View History</a>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Symptoms & Causes & Treatment Column -->
+                    <div class="col-lg-7">
+                        <!-- Symptoms Card -->
+                        <div class="agri-card p-4 mb-4">
+                            <h4 class="fw-bold text-dark mb-3"><i class="fas fa-clipboard-list me-2 text-warning"></i>What are the symptoms?</h4>
+                            <ul class="list-unstyled mb-0 text-dark">
+                                ${symptomsList || '<li>No specific symptoms listed. Leaf is healthy.</li>'}
+                            </ul>
+                        </div>
+
+                        <!-- Causes Card -->
+                        <div class="agri-card p-4 mb-4">
+                            <h4 class="fw-bold text-dark mb-2"><i class="fas fa-circle-question me-2 text-danger"></i>What causes it?</h4>
+                            <p class="text-muted mb-0">${data.causes || 'Proper agricultural care.'}</p>
+                        </div>
+
+                        <!-- Recommended Treatment Card -->
+                        <div class="agri-card p-4 mb-4 border-start border-5 border-success">
+                            <h4 class="fw-bold text-success mb-3"><i class="fas fa-prescription-bottle-medical me-2"></i>Recommended Treatment</h4>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <div class="p-3 bg-light rounded-3 border">
+                                        <small class="text-muted fw-bold d-block mb-1">Recommended Fungicide / Spray:</small>
+                                        <span class="fw-bold text-dark">${t.fungicide || t.pesticide || 'None required'}</span>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="p-3 bg-light rounded-3 border">
+                                        <small class="text-muted fw-bold d-block mb-1">Biological Remedy:</small>
+                                        <span class="fw-bold text-dark">${t.biologicalControl || 'Organic compost / Beneficial microbes'}</span>
+                                    </div>
+                                </div>
+                                <div class="col-12">
+                                    <div class="p-3 bg-success bg-opacity-10 rounded-3 border border-success border-opacity-25">
+                                        <small class="text-success fw-bold d-block mb-1"><i class="fas fa-syringe me-1"></i>Dosage & Application Instructions:</small>
+                                        <span class="text-dark fw-semibold">${t.dosage || 'Follow label instructions.'}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Prevention Card -->
+                        <div class="agri-card p-4">
+                            <h4 class="fw-bold text-dark mb-3"><i class="fas fa-shield-halved me-2 text-success"></i>How to prevent it</h4>
+                            <ul class="list-unstyled mb-0 text-dark">
+                                ${preventionList || '<li>Maintain clean farming practices and check plants regularly.</li>'}
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+    </script>
+</body>
+</html>
