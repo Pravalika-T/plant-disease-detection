@@ -1,18 +1,19 @@
-// Zero-Dependency Node.js REST API Server for Plant Disease Detection
-// Serves all Spring Boot REST API endpoints on http://localhost:8080
+// Complete Node.js Server for Plant Disease Detection
+// Serves both Frontend Web Application AND Backend REST APIs on http://localhost:8080
 
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
 const PORT = 8080;
+const FRONTEND_DIR = path.join(__dirname, '..', 'frontend');
 const UPLOAD_DIR = path.join(__dirname, 'uploads');
 
 if (!fs.existsSync(UPLOAD_DIR)) {
     fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 }
 
-// In-Memory Database initialized with seed dataset
+// In-Memory Database
 let users = [
     { id: 1, name: 'System Administrator', email: 'admin@plantdisease.com', password: 'admin123', role: 'ROLE_ADMIN', created_at: new Date() },
     { id: 2, name: 'Ramesh Kumar (Farmer)', email: 'farmer@plantdisease.com', password: 'farmer123', role: 'ROLE_FARMER', created_at: new Date() }
@@ -152,8 +153,20 @@ function parseJSONBody(req, callback) {
     });
 }
 
+const MIME_TYPES = {
+    '.html': 'text/html',
+    '.css': 'text/css',
+    '.js': 'application/javascript',
+    '.json': 'application/json',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.svg': 'image/svg+xml',
+    '.ico': 'image/x-icon'
+};
+
 const server = http.createServer((req, res) => {
-    // Enable CORS Preflight
+    // Enable CORS
     if (req.method === 'OPTIONS') {
         res.writeHead(200, {
             'Access-Control-Allow-Origin': '*',
@@ -166,7 +179,162 @@ const server = http.createServer((req, res) => {
     const parsedUrl = new URL(req.url, `http://${req.headers.host}`);
     const pathname = parsedUrl.pathname;
 
-    // Serve Static Uploaded Images
+    // -------------------------------------------------------------
+    // REST API ENDPOINTS
+    // -------------------------------------------------------------
+    if (pathname.startsWith('/api/')) {
+        
+        // 1. Auth REST APIs
+        if (pathname === '/api/auth/register' && req.method === 'POST') {
+            parseJSONBody(req, body => {
+                if (!body.email || !body.name || !body.password) {
+                    return sendJSON(res, { message: 'All fields are required' }, 400);
+                }
+                if (users.find(u => u.email.toLowerCase() === body.email.toLowerCase())) {
+                    return sendJSON(res, { message: 'Email address already exists' }, 400);
+                }
+
+                const newUser = {
+                    id: users.length + 1,
+                    name: body.name,
+                    email: body.email.toLowerCase().trim(),
+                    password: body.password,
+                    role: 'ROLE_FARMER',
+                    created_at: new Date()
+                };
+                users.push(newUser);
+
+                sendJSON(res, {
+                    id: newUser.id,
+                    name: newUser.name,
+                    email: newUser.email,
+                    role: newUser.role,
+                    message: 'Registration successful!'
+                });
+            });
+            return;
+        }
+
+        if (pathname === '/api/auth/login' && req.method === 'POST') {
+            parseJSONBody(req, body => {
+                const user = users.find(u => u.email.toLowerCase() === (body.email || '').toLowerCase());
+                if (!user || user.password !== body.password) {
+                    return sendJSON(res, { message: 'Invalid email address or password' }, 401);
+                }
+                sendJSON(res, {
+                    id: user.id,
+                    name: user.name,
+                    email: user.email,
+                    role: user.role,
+                    message: 'Login successful!'
+                });
+            });
+            return;
+        }
+
+        // 2. Disease Catalog REST APIs
+        if (pathname === '/api/diseases' && req.method === 'GET') {
+            return sendJSON(res, diseases);
+        }
+        if (pathname.startsWith('/api/diseases/') && req.method === 'GET') {
+            const id = parseInt(pathname.split('/')[3]);
+            const disease = diseases.find(d => d.id === id);
+            return disease ? sendJSON(res, disease) : sendJSON(res, { message: 'Disease record not found' }, 404);
+        }
+
+        // 3. Predictions REST APIs
+        if (pathname === '/api/predictions' && req.method === 'POST') {
+            const userId = parseInt(parsedUrl.searchParams.get('userId') || '2');
+            const randomConf = (92.0 + Math.random() * 6.5).toFixed(1);
+            const selectedDisease = diseases[Math.floor(Math.random() * diseases.length)];
+
+            const newPrediction = {
+                predictionId: predictions.length + 1,
+                plantName: selectedDisease.plantName,
+                diseaseName: selectedDisease.diseaseName,
+                confidence: parseFloat(randomConf),
+                isHealthy: selectedDisease.isHealthy,
+                symptoms: selectedDisease.symptoms,
+                causes: selectedDisease.causes,
+                treatment: selectedDisease.treatment,
+                imagePath: 'uploads/sample_leaf.jpg',
+                predictionDate: new Date(),
+                userId: userId
+            };
+
+            predictions.unshift(newPrediction);
+            return sendJSON(res, newPrediction, 200);
+        }
+        if (pathname === '/api/predictions/history' && req.method === 'GET') {
+            const userId = parseInt(parsedUrl.searchParams.get('userId') || '2');
+            const userPredictions = predictions.filter(p => p.userId === userId || userId === 1);
+            return sendJSON(res, userPredictions);
+        }
+        if (pathname.startsWith('/api/predictions/') && req.method === 'GET') {
+            const id = parseInt(pathname.split('/')[3]);
+            const pred = predictions.find(p => p.predictionId === id);
+            return pred ? sendJSON(res, pred) : sendJSON(res, { message: 'Prediction not found' }, 404);
+        }
+
+        // 4. Admin REST APIs
+        if (pathname === '/api/admin/stats' && req.method === 'GET') {
+            const healthyCount = predictions.filter(p => p.isHealthy).length;
+            const diseasedCount = predictions.length - healthyCount;
+
+            return sendJSON(res, {
+                totalUsers: users.length,
+                totalDiseases: diseases.length,
+                totalPredictions: predictions.length,
+                healthyPredictions: healthyCount,
+                diseasedPredictions: diseasedCount
+            });
+        }
+        if (pathname === '/api/admin/users' && req.method === 'GET') {
+            return sendJSON(res, users.map(u => ({ ...u, password: '***' })));
+        }
+        if (pathname.startsWith('/api/admin/users/') && req.method === 'DELETE') {
+            const id = parseInt(pathname.split('/')[4]);
+            users = users.filter(u => u.id !== id);
+            return sendJSON(res, { message: 'User deleted successfully' });
+        }
+        if (pathname === '/api/admin/predictions' && req.method === 'GET') {
+            return sendJSON(res, predictions);
+        }
+        if (pathname === '/api/admin/diseases' && req.method === 'POST') {
+            parseJSONBody(req, body => {
+                const newId = diseases.length + 1;
+                const newRecord = {
+                    id: newId,
+                    plantName: body.plantName || 'General Crop',
+                    diseaseName: body.diseaseName || 'New Condition',
+                    symptoms: body.symptoms || '',
+                    causes: body.causes || '',
+                    isHealthy: !!body.isHealthy,
+                    treatment: {
+                        id: newId,
+                        fungicide: body.treatment?.fungicide || '',
+                        biologicalControl: body.treatment?.biologicalControl || '',
+                        dosage: body.treatment?.dosage || '',
+                        prevention: body.treatment?.prevention || ''
+                    }
+                };
+                diseases.push(newRecord);
+                sendJSON(res, newRecord, 200);
+            });
+            return;
+        }
+        if (pathname.startsWith('/api/admin/diseases/') && req.method === 'DELETE') {
+            const id = parseInt(pathname.split('/')[4]);
+            diseases = diseases.filter(d => d.id !== id);
+            return sendJSON(res, { message: 'Disease record deleted successfully' });
+        }
+
+        return sendJSON(res, { message: 'API Endpoint Not Found' }, 404);
+    }
+
+    // -------------------------------------------------------------
+    // STATIC FILE SERVING FOR UPLOADS & FRONTEND
+    // -------------------------------------------------------------
     if (pathname.startsWith('/uploads/')) {
         const filePath = path.join(__dirname, pathname);
         if (fs.existsSync(filePath)) {
@@ -178,164 +346,25 @@ const server = http.createServer((req, res) => {
         }
     }
 
-    // 1. Auth REST APIs
-    if (pathname === '/api/auth/register' && req.method === 'POST') {
-        parseJSONBody(req, body => {
-            if (!body.email || !body.name || !body.password) {
-                return sendJSON(res, { message: 'All fields are required' }, 400);
-            }
-            if (users.find(u => u.email.toLowerCase() === body.email.toLowerCase())) {
-                return sendJSON(res, { message: 'Email address already exists' }, 400);
-            }
+    // Serve Frontend Static Web Files
+    let reqFilePath = pathname === '/' ? '/index.html' : pathname;
+    let safeFilePath = path.join(FRONTEND_DIR, reqFilePath);
 
-            const newUser = {
-                id: users.length + 1,
-                name: body.name,
-                email: body.email.toLowerCase().trim(),
-                password: body.password,
-                role: 'ROLE_FARMER',
-                created_at: new Date()
-            };
-            users.push(newUser);
-
-            sendJSON(res, {
-                id: newUser.id,
-                name: newUser.name,
-                email: newUser.email,
-                role: newUser.role,
-                message: 'Registration successful!'
-            });
-        });
-    }
-
-    else if (pathname === '/api/auth/login' && req.method === 'POST') {
-        parseJSONBody(req, body => {
-            const user = users.find(u => u.email.toLowerCase() === (body.email || '').toLowerCase());
-            if (!user || user.password !== body.password) {
-                return sendJSON(res, { message: 'Invalid email address or password' }, 401);
-            }
-            sendJSON(res, {
-                id: user.id,
-                name: user.name,
-                email: user.email,
-                role: user.role,
-                message: 'Login successful!'
-            });
-        });
-    }
-
-    // 2. Disease Catalog REST APIs
-    else if (pathname === '/api/diseases' && req.method === 'GET') {
-        sendJSON(res, diseases);
-    }
-    else if (pathname.startsWith('/api/diseases/') && req.method === 'GET') {
-        const id = parseInt(pathname.split('/')[3]);
-        const disease = diseases.find(d => d.id === id);
-        if (disease) {
-            sendJSON(res, disease);
-        } else {
-            sendJSON(res, { message: 'Disease record not found' }, 404);
-        }
-    }
-
-    // 3. Predictions REST APIs
-    else if (pathname === '/api/predictions' && req.method === 'POST') {
-        // Multi-part file upload mock processor
-        const userId = parseInt(parsedUrl.searchParams.get('userId') || '2');
-        const randomConf = (92.0 + Math.random() * 6.5).toFixed(1);
-        const selectedDisease = diseases[Math.floor(Math.random() * diseases.length)];
-
-        const newPrediction = {
-            predictionId: predictions.length + 1,
-            plantName: selectedDisease.plantName,
-            diseaseName: selectedDisease.diseaseName,
-            confidence: parseFloat(randomConf),
-            isHealthy: selectedDisease.isHealthy,
-            symptoms: selectedDisease.symptoms,
-            causes: selectedDisease.causes,
-            treatment: selectedDisease.treatment,
-            imagePath: 'uploads/uploaded_leaf.jpg',
-            predictionDate: new Date(),
-            userId: userId
-        };
-
-        predictions.unshift(newPrediction);
-        sendJSON(res, newPrediction, 200);
-    }
-    else if (pathname === '/api/predictions/history' && req.method === 'GET') {
-        const userId = parseInt(parsedUrl.searchParams.get('userId') || '2');
-        const userPredictions = predictions.filter(p => p.userId === userId || userId === 1);
-        sendJSON(res, userPredictions);
-    }
-    else if (pathname.startsWith('/api/predictions/') && req.method === 'GET') {
-        const id = parseInt(pathname.split('/')[3]);
-        const pred = predictions.find(p => p.predictionId === id);
-        if (pred) {
-            sendJSON(res, pred);
-        } else {
-            sendJSON(res, { message: 'Prediction not found' }, 404);
-        }
-    }
-
-    // 4. Admin REST APIs
-    else if (pathname === '/api/admin/stats' && req.method === 'GET') {
-        const healthyCount = predictions.filter(p => p.isHealthy).length;
-        const diseasedCount = predictions.length - healthyCount;
-
-        sendJSON(res, {
-            totalUsers: users.length,
-            totalDiseases: diseases.length,
-            totalPredictions: predictions.length,
-            healthyPredictions: healthyCount,
-            diseasedPredictions: diseasedCount
-        });
-    }
-    else if (pathname === '/api/admin/users' && req.method === 'GET') {
-        sendJSON(res, users.map(u => ({ ...u, password: '***' })));
-    }
-    else if (pathname.startsWith('/api/admin/users/') && req.method === 'DELETE') {
-        const id = parseInt(pathname.split('/')[4]);
-        users = users.filter(u => u.id !== id);
-        sendJSON(res, { message: 'User deleted successfully' });
-    }
-    else if (pathname === '/api/admin/predictions' && req.method === 'GET') {
-        sendJSON(res, predictions);
-    }
-    else if (pathname === '/api/admin/diseases' && req.method === 'POST') {
-        parseJSONBody(req, body => {
-            const newId = diseases.length + 1;
-            const newRecord = {
-                id: newId,
-                plantName: body.plantName || 'General Crop',
-                diseaseName: body.diseaseName || 'New Condition',
-                symptoms: body.symptoms || '',
-                causes: body.causes || '',
-                isHealthy: !!body.isHealthy,
-                treatment: {
-                    id: newId,
-                    fungicide: body.treatment?.fungicide || '',
-                    biologicalControl: body.treatment?.biologicalControl || '',
-                    dosage: body.treatment?.dosage || '',
-                    prevention: body.treatment?.prevention || ''
-                }
-            };
-            diseases.push(newRecord);
-            sendJSON(res, newRecord, 200);
-        });
-    }
-    else if (pathname.startsWith('/api/admin/diseases/') && req.method === 'DELETE') {
-        const id = parseInt(pathname.split('/')[4]);
-        diseases = diseases.filter(d => d.id !== id);
-        sendJSON(res, { message: 'Disease record deleted successfully' });
-    }
-    else {
-        sendJSON(res, { message: 'API Endpoint Not Found' }, 404);
+    if (fs.existsSync(safeFilePath) && fs.statSync(safeFilePath).isFile()) {
+        const ext = path.extname(safeFilePath).toLowerCase();
+        const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+        res.writeHead(200, { 'Content-Type': contentType });
+        return fs.createReadStream(safeFilePath).pipe(res);
+    } else {
+        res.writeHead(404, { 'Content-Type': 'text/html' });
+        return res.end('<h2>404 Not Found</h2><p>Page does not exist.</p>');
     }
 });
 
 server.listen(PORT, () => {
     console.log("=================================================");
-    console.log(` Plant Disease Detection Backend REST Service Running`);
-    console.log(` Server URL: http://localhost:${PORT}/api        `);
+    console.log(` Plant Disease System Active on Port ${PORT}`);
+    console.log(` Website:  http://localhost:${PORT}/            `);
+    console.log(` REST API: http://localhost:${PORT}/api/        `);
     console.log("=================================================");
 });
